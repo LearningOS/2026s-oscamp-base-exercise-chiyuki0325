@@ -16,11 +16,26 @@ use std::thread;
 ///
 /// Hint: Use `Arc<Mutex<usize>>` as the shared counter.
 pub fn concurrent_counter(n_threads: usize, count_per_thread: usize) -> usize {
-    // TODO: Create Arc<Mutex<usize>> with initial value 0
-    // TODO: Spawn n_threads threads
-    // TODO: In each thread, lock() and increment count_per_thread times
-    // TODO: Join all threads, return final value
-    todo!()
+    // Create Arc<Mutex<usize>> with initial value 0
+    // Spawn n_threads threads
+    // In each thread, lock() and increment count_per_thread times
+    // Join all threads, return final value
+    let counter = Arc::new(Mutex::<usize>::new(0));
+
+    let spawner = |_| {
+        let counter_cloned = counter.clone();
+        thread::spawn(move || {
+            let mut guard = counter_cloned.lock().unwrap();
+            *guard += count_per_thread;
+        })
+    };
+    let threads: Vec<thread::JoinHandle<()>> = (0..n_threads).map(spawner).collect();
+    threads
+        .into_iter()
+        .for_each(|handle| handle.join().unwrap());
+
+    let guard = counter.lock().unwrap();
+    *guard
 }
 
 /// Add elements to a shared vector concurrently using multiple threads.
@@ -29,10 +44,29 @@ pub fn concurrent_counter(n_threads: usize, count_per_thread: usize) -> usize {
 ///
 /// Hint: Use `Arc<Mutex<Vec<usize>>>`.
 pub fn concurrent_collect(n_threads: usize) -> Vec<usize> {
-    // TODO: Create Arc<Mutex<Vec<usize>>>
-    // TODO: Each thread pushes its own id
-    // TODO: After joining all threads, sort the result and return
-    todo!()
+    let collector = Arc::new(Mutex::new(Vec::<usize>::new()));
+
+    let spawner = |_| {
+        let collector_cloned = collector.clone();
+        thread::spawn(move || {
+            let mut collector = collector_cloned.lock().unwrap();
+            let len = collector.len();
+            collector.push(len);
+        })
+    };
+
+    let threads: Vec<thread::JoinHandle<()>> = (0..n_threads).map(spawner).collect();
+    threads
+        .into_iter()
+        .for_each(|handle| handle.join().unwrap());
+
+    let mut vec = Arc::try_unwrap(collector) 
+        .unwrap()
+        .into_inner()
+        .unwrap();
+
+    vec.sort();
+    vec
 }
 
 #[cfg(test)]
