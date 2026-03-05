@@ -10,15 +10,30 @@
 
 use std::sync::mpsc;
 use std::thread;
+use std::sync::{Arc, Mutex};
 
 /// Create a producer thread that sends each element from items into the channel.
 /// The main thread receives all messages and returns them.
 pub fn simple_send_recv(items: Vec<String>) -> Vec<String> {
-    // TODO: Create channel
-    // TODO: Spawn thread to send each element in items
-    // TODO: In main thread, receive all messages and collect into Vec
+    // Create channel
+    // Spawn thread to send each element in items
+    // In main thread, receive all messages and collect into Vec
     // Hint: When all Senders are dropped, recv() returns Err
-    todo!()
+    let (tx, rx) = mpsc::channel::<String>();
+
+    let handle = thread::spawn(move || {
+        items.into_iter().for_each(|it| tx.send(it).unwrap());
+    });
+
+    let mut result = Vec::<String>::new();
+
+    while let Ok(el) = rx.recv() {
+        result.push(el);
+    }
+
+    handle.join().unwrap();
+
+    result
 }
 
 /// Create `n_producers` producer threads, each sending a message in format `"msg from {id}"`.
@@ -26,11 +41,39 @@ pub fn simple_send_recv(items: Vec<String>) -> Vec<String> {
 ///
 /// Hint: Use `tx.clone()` to create multiple senders. Note that the original tx must also be dropped.
 pub fn multi_producer(n_producers: usize) -> Vec<String> {
-    // TODO: Create channel
-    // TODO: Clone a sender for each producer
-    // TODO: Remember to drop the original sender, otherwise receiver won't finish
-    // TODO: Collect all messages and sort
-    todo!()
+    // Create channel
+    // Clone a sender for each producer
+    // Remember to drop the original sender, otherwise receiver won't finish
+    // Collect all messages and sort
+
+    let counter = Arc::new(Mutex::<usize>::new(0));
+    let (tx, rx) = mpsc::channel::<String>();
+
+    let spawner = |_| {
+      let tx = tx.clone();
+      let counter = counter.clone();
+      thread::spawn(move || {
+        let mut guard=counter.lock().unwrap();
+        let msg = format!("msg from {}", guard);
+        *guard+=1;
+        drop(guard);
+
+        _ = tx.send(msg);
+      })
+    };
+
+    let handles: Vec<thread::JoinHandle<()>>  = (0..n_producers).map(spawner).collect();
+    drop(tx);
+
+    let mut results = Vec::<String>::new();
+
+    while let Ok(result) = rx.recv() {
+        results.push(result);
+    }
+
+    handles.into_iter().for_each(|h| h.join().unwrap());
+
+    results
 }
 
 #[cfg(test)]
