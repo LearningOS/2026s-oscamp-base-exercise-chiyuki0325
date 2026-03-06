@@ -35,6 +35,7 @@
 //!
 //! - Trait objects: `Arc<dyn File>`
 //! - `Vec<Option<T>>` as a sparse table
+// Why sparse table? using heap is possible?
 //! - fd number reuse strategy (find smallest free slot)
 //! - `Arc` reference counting and resource release
 
@@ -46,44 +47,174 @@ pub trait File: Send + Sync {
     fn write(&self, buf: &[u8]) -> isize;
 }
 
+struct MinHeap {
+    arr: Vec<usize>,
+}
+
+impl MinHeap {
+    pub fn new() -> MinHeap {
+        MinHeap { arr: Vec::new() }
+    }
+
+    pub fn left(&self, index: usize) -> usize {
+        index * 2 + 1
+    }
+
+    pub fn right(&self, index: usize) -> usize {
+        index * 2 + 2
+    }
+
+    pub fn parent(&self, index: usize) -> Option<usize> {
+        if index == 0 {
+            None
+        } else {
+            Some((index - 1) / 2)
+        }
+    }
+
+    pub fn peek(&self) -> Option<&usize> {
+        self.arr.get(0)
+    }
+
+    fn swap(&mut self, a: usize, b: usize) {
+        self.arr.swap(a, b)
+    }
+
+    pub fn len(&self) -> usize {
+        self.arr.len()
+    }
+
+    fn child_to_swap(&self, i: usize) -> Option<usize> {
+        let l = self.left(i);
+        let r = self.right(i);
+        let n = self.len();
+
+        if l >= n {
+            None
+        } else if r >= n {
+            Some(l)
+        } else if self.arr[l] <= self.arr[r] {
+            Some(l)
+        } else {
+            Some(r)
+        }
+    }
+
+    fn sink_down(&mut self, i: usize) {
+        let mut i = i;
+        while let Some(mc) = self.child_to_swap(i) {
+            if self.arr[mc] > self.arr[i] {
+                break;
+            }
+            self.swap(i, mc);
+            i = mc;
+        }
+    }
+
+    fn float_up(&mut self, i: usize) {
+        let mut i = i;
+        while let Some(pa) = self.parent(i) {
+            if self.arr[pa] <= self.arr[i] {
+                break;
+            }
+            self.swap(i, pa);
+            i = pa;
+        }
+    }
+
+    pub fn push(&mut self, el: usize) {
+        self.arr.push(el);
+        self.float_up(self.len() - 1);
+    }
+
+    pub fn pop(&mut self) -> Option<usize> {
+        let len = self.len();
+        if len == 0 {
+            None
+        } else {
+            self.swap(0, len - 1);
+            let result = self.arr.pop();
+            self.sink_down(0);
+            result
+        }
+    }
+}
+
+impl From<Vec<usize>> for MinHeap {
+    fn from(value: Vec<usize>) -> Self {
+        let mut heap = MinHeap { arr: value };
+        let mut i = heap.parent(heap.len() - 1).unwrap_or(0);
+        loop {
+            heap.sink_down(i);
+            if i == 0 {
+                break;
+            }
+            i -= 1;
+        }
+        heap
+    }
+}
+
 /// File descriptor table
 pub struct FdTable {
     // TODO: Design the internal structure
     // Hint: use Vec<Option<Arc<dyn File>>>
     //       the index is the fd number, None means the fd is closed or unallocated
+    files: Vec<Option<Arc<dyn File>>>,
+    index_heap: MinHeap,
 }
 
 impl FdTable {
     /// Create an empty fd table
     pub fn new() -> Self {
-        // TODO
-        todo!()
+        // initial size as 4
+        FdTable {
+            files: vec![None, None, None, None],
+            index_heap: MinHeap::from(vec![0, 1, 2, 3]),
+        }
     }
 
     /// Allocate a new fd, return the fd number.
     ///
     /// Prefers reusing the smallest closed fd number; if no free slot, appends to the end.
     pub fn alloc(&mut self, file: Arc<dyn File>) -> usize {
-        // TODO
-        todo!()
+        if let Some(index) = self.index_heap.peek() {
+            let index = index.clone();
+            self.files[index] = Some(file);
+            self.index_heap.pop();
+            index
+        } else {
+            // extend by one
+            let index = self.files.len();
+            self.files.push(Some(file));
+            index
+        }
     }
 
     /// Get the file object for an fd. Returns None if the fd doesn't exist or is closed.
     pub fn get(&self, fd: usize) -> Option<Arc<dyn File>> {
-        // TODO
-        todo!()
+        if let Some(file) = self.files.get(fd) {
+            file.clone()
+        } else {
+            None
+        }
     }
 
     /// Close an fd. Returns true on success, false if the fd doesn't exist or is already closed.
     pub fn close(&mut self, fd: usize) -> bool {
-        // TODO
-        todo!()
+        if let Some(file) = self.files.get_mut(fd) {
+            if file.is_some() {
+                *file = None;
+                self.index_heap.push(fd);
+                return true;
+            }
+        }
+        false
     }
 
     /// Return the number of currently allocated fds (excluding closed ones)
     pub fn count(&self) -> usize {
-        // TODO
-        todo!()
+        self.files.len()-self.index_heap.len()
     }
 }
 
