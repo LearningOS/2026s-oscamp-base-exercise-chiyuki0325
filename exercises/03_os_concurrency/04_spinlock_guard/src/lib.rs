@@ -27,6 +27,11 @@ pub struct SpinGuard<'a, T> {
     lock: &'a SpinLock<T>,
 }
 
+// 此处生命周期 'a 的作用：
+// Lock: 我被释放之前你们都得死
+// Guard: 我也要死吗
+// Lock: 对
+
 impl<T> SpinLock<T> {
     pub fn new(data: T) -> Self {
         Self {
@@ -39,9 +44,10 @@ impl<T> SpinLock<T> {
     ///
     /// TODO: Spin-wait to acquire lock (compare_exchange), return SpinGuard on success.
     pub fn lock(&self) -> SpinGuard<'_, T> {
-        // TODO: Spin-wait to acquire lock
-        // TODO: Return SpinGuard { lock: self }
-        todo!()
+        while self.locked.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+            core::hint::spin_loop();
+        }
+        return SpinGuard{ lock: self}
     }
 }
 
@@ -51,7 +57,10 @@ impl<T> Deref for SpinGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        todo!()
+        let ptr = self.lock.data.get();
+        unsafe {
+            & *ptr
+        }
     }
 }
 
@@ -59,7 +68,10 @@ impl<T> Deref for SpinGuard<'_, T> {
 // Return &mut T
 impl<T> DerefMut for SpinGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
-        todo!()
+        let ptr = self.lock.data.get();
+        unsafe {
+            &mut *ptr
+        }
     }
 }
 
@@ -67,7 +79,7 @@ impl<T> DerefMut for SpinGuard<'_, T> {
 // Set lock.locked to false (Release ordering)
 impl<T> Drop for SpinGuard<'_, T> {
     fn drop(&mut self) {
-        todo!()
+        self.lock.locked.store(false, Ordering::Release);
     }
 }
 
